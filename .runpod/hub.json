@@ -1,0 +1,25 @@
+{
+  "title": "ComfyUI",
+  "description": "Generate images with ComfyUI using FLUX.1-dev (fp8)",
+  "type": "serverless",
+  "category": "image",
+  "iconUrl": "https://cpjrphpz3t5wbwfe.public.blob.vercel-storage.com/comfyui-logo-zpFUpCZoYMn5L0Ea9hfYOKX6F9gYqx.png",
+  "config": {
+    "runsOn": "GPU",
+    "containerDiskInGb": 20,
+    "gpuIds": "ADA_24",
+    "gpuCount": 1,
+    "allowedCudaVersions": ["12.7", "12.6"],
+    "env": [
+      {
+        "key": "REFRESH_WORKER",
+        "input": {
+          "name": "Refresh Worker",
+          "type": "boolean",
+          "description": "When enabled, the worker will stop after each finished job to have a clean state",
+          "default": false
+        }
+      }
+    ]
+  }
+}

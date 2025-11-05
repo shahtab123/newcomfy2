@@ -1,0 +1,50 @@
+{
+  "timestamp": "2025-01-08T12:00:00.000Z",
+  "git_custom_nodes": {
+    "https://github.com/ltdrdata/ComfyUI-Impact-Pack": {
+      "hash": "main",
+      "disabled": false
+    },
+    "https://github.com/ltdrdata/ComfyUI-Impact-Subpack": {
+      "hash": "main",
+      "disabled": false
+    },
+    "https://github.com/da2el-ai/D2-nodes-ComfyUI": {
+      "hash": "main",
+      "disabled": false
+    },
+    "https://github.com/kimara-ai/ComfyUI-Kimara-AI-Advanced-Watermarks": {
+      "hash": "main",
+      "disabled": false
+    },
+    "https://github.com/WUYUDING2583/ComfyUI-Save-Image-Callback": {
+      "hash": "main",
+      "disabled": false
+    },
+    "https://github.com/mikheys/comfyui-gemini-mikheys": {
+      "hash": "main",
+      "disabled": false
+    },
+    "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite": {
+      "hash": "main",
+      "disabled": false
+    },
+    "https://github.com/Fannovel16/ComfyUI-Frame-Interpolation": {
+      "hash": "main",
+      "disabled": false
+    },
+    "https://github.com/Gourieff/ComfyUI-ReActor": {
+      "hash": "main",
+      "disabled": false
+    },
+    "https://github.com/jerrywap/ComfyUI_UploadToWebhookHTTP": {
+      "hash": "main",
+      "disabled": false
+    },
+    "https://github.com/ShmuelRonen/ComfyUI-NanoBanano": {
+      "hash": "main",
+      "disabled": false
+    }
+  },
+  "file_custom_nodes": []
+}
