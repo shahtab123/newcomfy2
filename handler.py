@@ -165,8 +165,19 @@ def validate_input(job_input):
                 "'images' must be a list of objects with 'name' and 'image' keys",
             )
 
+    # Validate 'audio' in input, if provided
+    audio_files = job_input.get("audio")
+    if audio_files is not None:
+        if not isinstance(audio_files, list) or not all(
+            "name" in audio_file and "audio" in audio_file for audio_file in audio_files
+        ):
+            return (
+                None,
+                "'audio' must be a list of objects with 'name' and 'audio' keys",
+            )
+
     # Return validated data and no error
-    return {"workflow": workflow, "images": images}, None
+    return {"workflow": workflow, "images": images, "audio": audio_files}, None
 
 
 def check_server(url, retries=500, delay=50):
@@ -289,6 +300,119 @@ def upload_images(images):
     }
 
 
+def upload_audio(audio_files):
+    """
+    Upload base64-encoded audio files to ComfyUI's input directory (RunPod-safe).
+    Since ComfyUI doesn't have a dedicated /upload/audio endpoint, we save files directly to the input folder.
+
+    Args:
+        audio_files (list): A list of dictionaries, each containing the 'name' of the audio file and the 'audio' as a base64 encoded string.
+
+    Returns:
+        dict: A dictionary indicating success or error.
+    """
+    if not audio_files:
+        return {"status": "success", "message": "No audio files to upload", "details": []}
+
+    responses = []
+    upload_errors = []
+
+    print(f"worker-comfyui - Uploading {len(audio_files)} audio file(s)...")
+
+    # On RunPod, /workspace is the writable persistent storage location
+    comfy_input_dir = os.environ.get("COMFY_INPUT_DIR", "/workspace/ComfyUI/input")
+    
+    # Fallback to other locations if /workspace doesn't exist (for local testing)
+    if not os.path.exists(os.path.dirname(comfy_input_dir)):
+        alternative_dirs = [
+            "/comfyui/input",
+            "./ComfyUI/input",
+            "./input"
+        ]
+        for alt_dir in alternative_dirs:
+            if os.path.exists(os.path.dirname(alt_dir)) or alt_dir.startswith("./"):
+                comfy_input_dir = alt_dir
+                break
+
+    # Ensure directory exists and is writable
+    try:
+        os.makedirs(comfy_input_dir, exist_ok=True)
+    except Exception as e:
+        err = f"Cannot create ComfyUI input directory '{comfy_input_dir}': {e}"
+        print(f"worker-comfyui - {err}")
+        return {"status": "error", "message": err, "details": []}
+
+    if not os.access(comfy_input_dir, os.W_OK):
+        err = f"Input directory '{comfy_input_dir}' is not writable"
+        print(f"worker-comfyui - {err}")
+        return {"status": "error", "message": err, "details": []}
+
+    for audio in audio_files:
+        try:
+            # Sanitize filename to prevent path traversal attacks
+            name = os.path.basename(audio["name"])
+            if not name:
+                raise ValueError("Missing or invalid file name")
+
+            audio_data_uri = audio["audio"]
+
+            # Strip Data URI prefix if present
+            base64_data = audio_data_uri.split(",", 1)[1] if "," in audio_data_uri else audio_data_uri
+
+            # Safety check: limit base64 payload size (~20MB encoded = ~15MB decoded)
+            if len(base64_data) > 20_000_000:
+                raise ValueError(f"{name} exceeds 20MB base64 limit")
+
+            # Decode base64 data
+            blob = base64.b64decode(base64_data)
+
+            # Ensure file has an extension
+            if not os.path.splitext(name)[1]:
+                name += ".mp3"
+
+            # Use original filename for ComfyUI compatibility (LoadAudio node expects exact name)
+            # Note: In production, consider adding UUID prefix to avoid collisions
+            audio_path = os.path.join(comfy_input_dir, name)
+
+            # Write audio file
+            with open(audio_path, "wb") as f:
+                f.write(blob)
+
+            msg = f"Saved {name} ({len(blob)//1024} KB) to {comfy_input_dir}"
+            print(f"worker-comfyui - {msg}")
+            responses.append(msg)
+
+        except base64.binascii.Error:
+            error_msg = f"Invalid base64 encoding for {audio.get('name', 'unknown')}"
+            print(f"worker-comfyui - {error_msg}")
+            upload_errors.append(error_msg)
+        except (IOError, OSError) as e:
+            error_msg = f"Error writing audio file {audio.get('name', 'unknown')}: {e}"
+            print(f"worker-comfyui - {error_msg}")
+            upload_errors.append(error_msg)
+        except ValueError as e:
+            error_msg = f"Validation error for {audio.get('name', 'unknown')}: {e}"
+            print(f"worker-comfyui - {error_msg}")
+            upload_errors.append(error_msg)
+        except Exception as e:
+            error_msg = f"Unexpected error processing {audio.get('name', 'unknown')}: {e}"
+            print(f"worker-comfyui - {error_msg}")
+            upload_errors.append(error_msg)
+
+    if upload_errors:
+        return {
+            "status": "error",
+            "message": f"Uploaded {len(responses)} file(s) successfully, {len(upload_errors)} failed",
+            "details": upload_errors,
+        }
+
+    return {
+        "status": "success",
+        "message": f"Successfully uploaded {len(responses)} audio file(s)",
+        "details": responses,
+    }
+
+
 def get_available_models():
     """
     Get list of available models from ComfyUI
@@ -367,10 +491,33 @@ def queue_workflow(workflow, client_id):
             if "node_errors" in error_data:
                 for node_id, node_error in error_data["node_errors"].items():
                     if isinstance(node_error, dict):
-                        for error_type, error_msg in node_error.items():
-                            error_details.append(
-                                f"Node {node_id} ({error_type}): {error_msg}"
-                            )
+                        # Check for errors array with detailed error information
+                        if "errors" in node_error:
+                            for error in node_error["errors"]:
+                                if isinstance(error, dict):
+                                    error_msg = error.get("message", "")
+                                    error_details_str = error.get("details", "")
+                                    # Check if this is an audio file error
+                                    if "Invalid audio file" in error_details_str or "audio" in error_details_str.lower():
+                                        audio_file = error_details_str.split(":")[-1].strip() if ":" in error_details_str else ""
+                                        error_details.append(
+                                            f"Node {node_id} (LoadAudio): {error_details_str}\n"
+                                            f"  → Audio file '{audio_file}' not found. "
+                                            f"Please upload the audio file using the 'audio' parameter in your input, "
+                                            f"or ensure the file exists in ComfyUI's input directory."
+                                        )
+                                    else:
+                                        error_details.append(
+                                            f"Node {node_id}: {error_msg} - {error_details_str}"
+                                        )
+                                else:
+                                    error_details.append(f"Node {node_id}: {error}")
+                        else:
+                            # Fallback to old format
+                            for error_type, error_msg in node_error.items():
+                                error_details.append(
+                                    f"Node {node_id} ({error_type}): {error_msg}"
+                                )
                     else:
                         error_details.append(f"Node {node_id}: {node_error}")
 
@@ -496,6 +643,7 @@ def handler(job):
     # Extract validated data
     workflow = validated_data["workflow"]
     input_images = validated_data.get("images")
+    input_audio = validated_data.get("audio")
 
     # Make sure that the ComfyUI HTTP API is available before proceeding
     if not check_server(
@@ -514,6 +662,16 @@ def handler(job):
             # Return upload errors
             return {
                 "error": "Failed to upload one or more input images",
+                "details": upload_result["details"],
+            }
+
+    # Upload input audio files if they exist
+    if input_audio:
+        upload_result = upload_audio(input_audio)
+        if upload_result["status"] == "error":
+            # Return upload errors
+            return {
+                "error": "Failed to upload one or more input audio files",
                 "details": upload_result["details"],
             }
 
