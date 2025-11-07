@@ -624,13 +624,13 @@ def get_image_data(filename, subfolder, image_type):
 
 def handler(job):
     """
-    Handles a job using ComfyUI via websockets for status and image retrieval.
+    Handles a job using ComfyUI via websockets for status and output file retrieval.
 
     Args:
         job (dict): A dictionary containing job details and input parameters.
 
     Returns:
-        dict: A dictionary containing either an error message or a success status with generated images.
+        dict: A dictionary containing either an error message or a success status with generated images/gifs/videos.
     """
     job_input = job["input"]
     job_id = job["id"]
@@ -803,6 +803,7 @@ def handler(job):
 
         print(f"worker-comfyui - Processing {len(outputs)} output nodes...")
         for node_id, node_output in outputs.items():
+            # Process images
             if "images" in node_output:
                 print(
                     f"worker-comfyui - Node {node_id} contains {len(node_output['images'])} image(s)"
@@ -828,71 +829,126 @@ def handler(job):
                     image_bytes = get_image_data(filename, subfolder, img_type)
 
                     if image_bytes:
-                        file_extension = os.path.splitext(filename)[1] or ".png"
-
-                        if os.environ.get("BUCKET_ENDPOINT_URL"):
-                            try:
-                                with tempfile.NamedTemporaryFile(
-                                    suffix=file_extension, delete=False
-                                ) as temp_file:
-                                    temp_file.write(image_bytes)
-                                    temp_file_path = temp_file.name
-                                print(
-                                    f"worker-comfyui - Wrote image bytes to temporary file: {temp_file_path}"
-                                )
-
-                                print(f"worker-comfyui - Uploading {filename} to S3...")
-                                s3_url = rp_upload.upload_image(job_id, temp_file_path)
-                                os.remove(temp_file_path)  # Clean up temp file
-                                print(
-                                    f"worker-comfyui - Uploaded {filename} to S3: {s3_url}"
-                                )
-                                # Append dictionary with filename and URL
-                                output_data.append(
-                                    {
-                                        "filename": filename,
-                                        "type": "s3_url",
-                                        "data": s3_url,
-                                    }
-                                )
-                            except Exception as e:
-                                error_msg = f"Error uploading {filename} to S3: {e}"
-                                print(f"worker-comfyui - {error_msg}")
-                                errors.append(error_msg)
-                                if "temp_file_path" in locals() and os.path.exists(
-                                    temp_file_path
-                                ):
-                                    try:
-                                        os.remove(temp_file_path)
-                                    except OSError as rm_err:
-                                        print(
-                                            f"worker-comfyui - Error removing temp file {temp_file_path}: {rm_err}"
-                                        )
-                        else:
-                            # Return as base64 string
-                            try:
-                                base64_image = base64.b64encode(image_bytes).decode(
-                                    "utf-8"
-                                )
-                                # Append dictionary with filename and base64 data
-                                output_data.append(
-                                    {
-                                        "filename": filename,
-                                        "type": "base64",
-                                        "data": base64_image,
-                                    }
-                                )
-                                print(f"worker-comfyui - Encoded {filename} as base64")
-                            except Exception as e:
-                                error_msg = f"Error encoding {filename} to base64: {e}"
-                                print(f"worker-comfyui - {error_msg}")
-                                errors.append(error_msg)
+                        # Always return as base64 string for serverless
+                        try:
+                            base64_image = base64.b64encode(image_bytes).decode(
+                                "utf-8"
+                            )
+                            # Append dictionary with filename and base64 data
+                            output_data.append(
+                                {
+                                    "filename": filename,
+                                    "type": "base64",
+                                    "data": base64_image,
+                                }
+                            )
+                            print(f"worker-comfyui - Encoded {filename} as base64")
+                        except Exception as e:
+                            error_msg = f"Error encoding {filename} to base64: {e}"
+                            print(f"worker-comfyui - {error_msg}")
+                            errors.append(error_msg)
                     else:
                         error_msg = f"Failed to fetch image data for {filename} from /view endpoint."
                         errors.append(error_msg)
 
-            # Check for other output types
-            other_keys = [k for k in node_output.keys() if k != "images"]
+            # Process GIFs (VHS_VideoCombine outputs videos but ComfyUI uses "gifs" key)
+            if "gifs" in node_output:
+                print(
+                    f"worker-comfyui - Node {node_id} contains {len(node_output['gifs'])} gif/video file(s)"
+                )
+                for gif_info in node_output["gifs"]:
+                    filename = gif_info.get("filename")
+                    subfolder = gif_info.get("subfolder", "")
+                    gif_type = gif_info.get("type")
+
+                    # skip temp gifs
+                    if gif_type == "temp":
+                        print(
+                            f"worker-comfyui - Skipping gif/video {filename} because type is 'temp'"
+                        )
+                        continue
+
+                    if not filename:
+                        warn_msg = f"Skipping gif/video in node {node_id} due to missing filename: {gif_info}"
+                        print(f"worker-comfyui - {warn_msg}")
+                        errors.append(warn_msg)
+                        continue
+
+                    gif_bytes = get_image_data(filename, subfolder, gif_type)
+
+                    if gif_bytes:
+                        # Always return as base64 string for serverless
+                        try:
+                            base64_gif = base64.b64encode(gif_bytes).decode(
+                                "utf-8"
+                            )
+                            # Append dictionary with filename and base64 data
+                            output_data.append(
+                                {
+                                    "filename": filename,
+                                    "type": "base64",
+                                    "data": base64_gif,
+                                }
+                            )
+                            print(f"worker-comfyui - Encoded {filename} as base64")
+                        except Exception as e:
+                            error_msg = f"Error encoding {filename} to base64: {e}"
+                            print(f"worker-comfyui - {error_msg}")
+                            errors.append(error_msg)
+                    else:
+                        error_msg = f"Failed to fetch gif/video data for {filename} from /view endpoint."
+                        errors.append(error_msg)
+
+            # Process videos (some nodes may use "videos" key directly)
+            if "videos" in node_output:
+                print(
+                    f"worker-comfyui - Node {node_id} contains {len(node_output['videos'])} video file(s)"
+                )
+                for video_info in node_output["videos"]:
+                    filename = video_info.get("filename")
+                    subfolder = video_info.get("subfolder", "")
+                    video_type = video_info.get("type")
+
+                    # skip temp videos
+                    if video_type == "temp":
+                        print(
+                            f"worker-comfyui - Skipping video {filename} because type is 'temp'"
+                        )
+                        continue
+
+                    if not filename:
+                        warn_msg = f"Skipping video in node {node_id} due to missing filename: {video_info}"
+                        print(f"worker-comfyui - {warn_msg}")
+                        errors.append(warn_msg)
+                        continue
+
+                    video_bytes = get_image_data(filename, subfolder, video_type)
+
+                    if video_bytes:
+                        # Always return as base64 string for serverless
+                        try:
+                            base64_video = base64.b64encode(video_bytes).decode(
+                                "utf-8"
+                            )
+                            # Append dictionary with filename and base64 data
+                            output_data.append(
+                                {
+                                    "filename": filename,
+                                    "type": "base64",
+                                    "data": base64_video,
+                                }
+                            )
+                            print(f"worker-comfyui - Encoded {filename} as base64")
+                        except Exception as e:
+                            error_msg = f"Error encoding {filename} to base64: {e}"
+                            print(f"worker-comfyui - {error_msg}")
+                            errors.append(error_msg)
+                    else:
+                        error_msg = f"Failed to fetch video data for {filename} from /view endpoint."
+                        errors.append(error_msg)
+
+            # Check for other output types (excluding images, gifs, and videos)
+            other_keys = [k for k in node_output.keys() if k not in ["images", "gifs", "videos"]]
             if other_keys:
                 warn_msg = (
                     f"Node {node_id} produced unhandled output keys: {other_keys}."
@@ -933,19 +989,20 @@ def handler(job):
         print(f"worker-comfyui - Job completed with errors/warnings: {errors}")
 
     if not output_data and errors:
-        print(f"worker-comfyui - Job failed with no output images.")
+        print(f"worker-comfyui - Job failed with no output files.")
         return {
             "error": "Job processing failed",
             "details": errors,
         }
     elif not output_data and not errors:
         print(
-            f"worker-comfyui - Job completed successfully, but the workflow produced no images."
+            f"worker-comfyui - Job completed successfully, but the workflow produced no output files (images/gifs/videos)."
         )
-        final_result["status"] = "success_no_images"
+        final_result["status"] = "success_no_outputs"
         final_result["images"] = []
 
-    print(f"worker-comfyui - Job completed. Returning {len(output_data)} image(s).")
+    total_outputs = len(output_data)
+    print(f"worker-comfyui - Job completed. Returning {total_outputs} output file(s) (images/gifs/videos).")
     return final_result
 
 
