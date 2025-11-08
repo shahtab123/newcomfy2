@@ -852,6 +852,7 @@ def handler(job):
                         errors.append(error_msg)
 
             # Process GIFs (VHS_VideoCombine outputs videos but ComfyUI uses "gifs" key)
+            
             if "gifs" in node_output:
                 print(
                     f"worker-comfyui - Node {node_id} contains {len(node_output['gifs'])} gif/video file(s)"
