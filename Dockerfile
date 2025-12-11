@@ -93,6 +93,12 @@ RUN comfy-node-install \
     https://github.com/rgthree/rgthree-comfy \
     https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite
 
+# Batch 4: Additional utility and workflow nodes
+RUN comfy-node-install \
+    https://github.com/kijai/ComfyUI-KJNodes \
+    https://github.com/ClownsharkBatwing/RES4LYF \
+    https://github.com/alexopus/ComfyUI-Image-Saver
+
 # Go back to the root
 WORKDIR /
 

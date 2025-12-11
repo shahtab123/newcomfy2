@@ -4,7 +4,7 @@
 
 ## Quick Start
 
-This repository contains RunPod serverless workflows for image and video generation using ComfyUI.
+This repository contains RunPod serverless workflows for image and video generation using ComfyUI. The handler supports batch processing for generating multiple images or videos in a single request.
 
 ## Available Workflows
 
@@ -147,6 +147,93 @@ docker build --build-arg HUGGINGFACE_ACCESS_TOKEN=your_hf_token_here -t your-ima
 }
 ```
 
+## Batch Processing
+
+The handler fully supports batch processing for both images and videos. All outputs are automatically collected and returned in a single response.
+
+### Batch Image Generation
+
+To generate multiple images in a single request, set the `batch_size` parameter in your `EmptyLatentImage` node:
+
+```json
+{
+  "5": {
+    "inputs": {
+      "width": 1024,
+      "height": 1024,
+      "batch_size": 4  // Generate 4 images at once
+    },
+    "class_type": "EmptyLatentImage"
+  }
+}
+```
+
+**Response Format:**
+All generated images are returned in the `images` array:
+```json
+{
+  "images": [
+    {
+      "filename": "ComfyUI_00001_.png",
+      "type": "base64",
+      "data": "base64_encoded_image_data_1"
+    },
+    {
+      "filename": "ComfyUI_00002_.png",
+      "type": "base64",
+      "data": "base64_encoded_image_data_2"
+    },
+    // ... more images
+  ]
+}
+```
+
+### Batch Video Generation
+
+To generate multiple videos in a single request, set the `batch_size` parameter in your `EmptyHunyuanLatentVideo` node:
+
+```json
+{
+  "74": {
+    "inputs": {
+      "width": 640,
+      "height": 640,
+      "length": 81,
+      "batch_size": 4  // Generate 4 videos at once
+    },
+    "class_type": "EmptyHunyuanLatentVideo"
+  }
+}
+```
+
+**Response Format:**
+All generated videos are returned in the `images` array (videos are included in the same array as images):
+```json
+{
+  "images": [
+    {
+      "filename": "ComfyUI_00001_.webp",
+      "type": "base64",
+      "data": "base64_encoded_video_data_1"
+    },
+    {
+      "filename": "ComfyUI_00002_.webp",
+      "type": "base64",
+      "data": "base64_encoded_video_data_2"
+    },
+    // ... more videos
+  ]
+}
+```
+
+### Batch Processing Notes
+
+- **Multiple Output Nodes**: The handler processes all output nodes and collects images/videos from all of them
+- **Automatic Collection**: All outputs are automatically collected regardless of which node generated them
+- **Base64 Encoding**: All outputs are returned as base64-encoded strings for serverless compatibility
+- **Error Handling**: If some outputs fail, successful outputs are still returned along with error details
+- **Performance**: Batch processing is more efficient than making multiple separate requests
+
 ## Output Processing
 
 ### Converting Base64 to Video
@@ -204,10 +291,16 @@ The repository includes sample files for testing:
 - Increase `COMFY_POLLING_MAX_RETRIES` for longer generation
 - Use fast workflows for testing
 - Reduce steps/frames for quicker results
+- **Batch Processing**: Larger batch sizes will take longer. Consider timeout settings when using batch_size > 1
 
 ### Model Loading Issues
 - Ensure all required model files are in the correct directories
 - Check model file names match workflow specifications
+
+### Batch Processing Issues
+- **Memory**: Large batch sizes require more GPU memory. Start with small batches (2-4) and increase gradually
+- **Timeout**: Batch processing takes proportionally longer. Adjust `COMFY_POLLING_MAX_RETRIES` accordingly
+- **Output Size**: All outputs are returned as base64, which increases response size. Consider batch size vs. response payload limits
 
 ## Acknowledgments
 
