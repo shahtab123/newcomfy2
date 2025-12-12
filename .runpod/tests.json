@@ -42,8 +42,8 @@
           },
           "27": {
             "inputs": {
-              "width": 512,
-              "height": 512,
+              "width": 256,
+              "height": 256,
               "batch_size": 1
             },
             "class_type": "EmptySD3LatentImage",
@@ -63,7 +63,7 @@
           "31": {
             "inputs": {
               "seed": 243057879077961,
-              "steps": 10,
+              "steps": 4,
               "cfg": 1,
               "sampler_name": "euler",
               "scheduler": "simple",
@@ -119,7 +119,7 @@
           }
         }
       },
-      "timeout": 300000
+      "timeout": 600000
     }
   ],
   "config": {
