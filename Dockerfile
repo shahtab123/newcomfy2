@@ -51,7 +51,9 @@ RUN wget -qO- https://astral.sh/uv/install.sh | sh \
 ENV PATH="/opt/venv/bin:${PATH}"
 
 # Install comfy-cli + dependencies needed by it to install ComfyUI
-RUN uv pip install comfy-cli pip setuptools wheel
+# comfy-cli is pinned: its install/torch-index behavior decides what lands in
+# the workspace venv, so an unpinned version makes builds non-reproducible.
+RUN uv pip install comfy-cli==1.13.0 pip setuptools wheel
 
 # Install ComfyUI
 RUN if [ -n "${CUDA_VERSION_FOR_COMFY}" ]; then \
@@ -101,6 +103,19 @@ RUN comfy-node-install \
 
 # Go back to the root
 WORKDIR /
+
+# comfy-cli installs ComfyUI into its own workspace venv (/comfyui/.venv), but
+# start.sh launches ComfyUI with /opt/venv's python. Mirror ComfyUI's full
+# dependency set (core + custom nodes) into /opt/venv so the launch venv is
+# complete. Also pin torch to +cu128 (avoid CUDA 13 wheels on older drivers)
+# and cap transformers/huggingface-hub to avoid breaking major versions.
+RUN uv pip install torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0 \
+      --index-url https://download.pytorch.org/whl/cu128 \
+    && uv pip install -r /comfyui/requirements.txt \
+    && for r in /comfyui/custom_nodes/*/requirements.txt; do \
+         [ -f "$r" ] && uv pip install -r "$r" || true; \
+       done \
+    && uv pip install "transformers>=4.50.3,<5" "huggingface-hub<1.0"
 
 # Install Python runtime dependencies for the handler
 RUN uv pip install runpod requests websocket-client

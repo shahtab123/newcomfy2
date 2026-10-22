@@ -17,6 +17,11 @@ import traceback
 COMFY_API_AVAILABLE_INTERVAL_MS = 50
 # Maximum number of API check attempts
 COMFY_API_AVAILABLE_MAX_RETRIES = 500
+# Max wait for a queued workflow to finish over websocket.
+# Kept as COMFY_POLLING_* for env compatibility (old HTTP polling names).
+# Default: 2000 × 500ms = 1000s (~16.7 min).
+COMFY_POLLING_MAX_RETRIES = int(os.environ.get("COMFY_POLLING_MAX_RETRIES", 2000))
+COMFY_POLLING_INTERVAL_MS = int(os.environ.get("COMFY_POLLING_INTERVAL_MS", 500))
 # Websocket reconnection behaviour (can be overridden through environment variables)
 # NOTE: more attempts and diagnostics improve debuggability whenever ComfyUI crashes mid-job.
 #   • WEBSOCKET_RECONNECT_ATTEMPTS sets how many times we will try to reconnect.
@@ -686,6 +691,8 @@ def handler(job):
         print(f"worker-comfyui - Connecting to websocket: {ws_url}")
         ws = websocket.WebSocket()
         ws.connect(ws_url, timeout=10)
+        # Periodic recv timeout so we can enforce COMFY_POLLING_* overall wait budget.
+        ws.settimeout(COMFY_POLLING_INTERVAL_MS / 1000.0)
         print(f"worker-comfyui - Websocket connected")
 
         # Queue the workflow
@@ -709,9 +716,22 @@ def handler(job):
                 raise ValueError(f"Unexpected error queuing workflow: {e}")
 
         # Wait for execution completion via WebSocket
-        print(f"worker-comfyui - Waiting for workflow execution ({prompt_id})...")
+        max_wait_s = (COMFY_POLLING_MAX_RETRIES * COMFY_POLLING_INTERVAL_MS) / 1000.0
+        wait_started = time.time()
+        print(
+            f"worker-comfyui - Waiting for workflow execution ({prompt_id})... "
+            f"(max {COMFY_POLLING_MAX_RETRIES} × {COMFY_POLLING_INTERVAL_MS}ms = {max_wait_s:.0f}s)"
+        )
         execution_done = False
+        last_progress_log = 0
         while True:
+            elapsed = time.time() - wait_started
+            if elapsed >= max_wait_s:
+                raise ValueError(
+                    f"Workflow timed out after {max_wait_s:.0f}s "
+                    f"({COMFY_POLLING_MAX_RETRIES} × {COMFY_POLLING_INTERVAL_MS}ms) "
+                    f"waiting for prompt {prompt_id}"
+                )
             try:
                 out = ws.recv()
                 if isinstance(out, str):
@@ -744,7 +764,13 @@ def handler(job):
                 else:
                     continue
             except websocket.WebSocketTimeoutException:
-                print(f"worker-comfyui - Websocket receive timed out. Still waiting...")
+                # recv timed out for one interval; overall budget checked at loop top
+                if int(elapsed) // 10 > last_progress_log:
+                    last_progress_log = int(elapsed) // 10
+                    print(
+                        f"worker-comfyui - Still waiting for prompt {prompt_id} "
+                        f"({elapsed:.0f}s / {max_wait_s:.0f}s)..."
+                    )
                 continue
             except websocket.WebSocketConnectionClosedException as closed_err:
                 try:
@@ -755,6 +781,7 @@ def handler(job):
                         WEBSOCKET_RECONNECT_DELAY_S,
                         closed_err,
                     )
+                    ws.settimeout(COMFY_POLLING_INTERVAL_MS / 1000.0)
 
                     print(
                         "worker-comfyui - Resuming message listening after successful reconnect."
