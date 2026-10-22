@@ -101,6 +101,19 @@ RUN comfy-node-install \
     https://github.com/ClownsharkBatwing/RES4LYF \
     https://github.com/alexopus/ComfyUI-Image-Saver
 
+# Trellis2 / Pixal3D / MoGe / Save3DAdvanced / MeshToFile3D are ComfyUI CORE nodes
+# (workflow cnr_id: comfy-core) when COMFYUI_VERSION=latest. Do NOT install third-party
+# ComfyUI-TRELLIS2 packs here — they conflict with native nodes. Put models on the
+# network volume instead, e.g.:
+#   models/diffusion_models/trellis_2_int8_convrot.safetensors
+#   models/diffusion_models/pixal3d_int8_convrot.safetensors
+#   models/vae/trellis_2_shape_vae_bf16.safetensors
+#   models/vae/trellis_2_texture_vae_bf16.safetensors
+#   models/clip_vision/dino_v3_L_naf_fp32.safetensors
+#   models/background_removal/birefnet.safetensors
+#   models/geometry_estimation/moge_2_vitl_normal_fp16.safetensors
+# See https://docs.comfy.org/tutorials/3d/trellis2
+
 # Go back to the root
 WORKDIR /
 

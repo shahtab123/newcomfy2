@@ -683,6 +683,7 @@ def handler(job):
     client_id = str(uuid.uuid4())
     prompt_id = None
     output_data = []
+    models_3d_data = []
     errors = []
 
     try:
@@ -974,8 +975,74 @@ def handler(job):
                         error_msg = f"Failed to fetch video data for {filename} from /view endpoint."
                         errors.append(error_msg)
 
-            # Check for other output types (excluding images, gifs, and videos)
-            other_keys = [k for k in node_output.keys() if k not in ["images", "gifs", "videos"]]
+            # Process 3D models (SaveGLB / Save3DAdvanced emit ui key "3d"; older paths use "mesh")
+            for model_key in ("3d", "mesh"):
+                if model_key not in node_output:
+                    continue
+                entries = node_output[model_key]
+                # Normalize: sometimes a bare filename string appears in history
+                if isinstance(entries, str):
+                    entries = [
+                        {
+                            "filename": os.path.basename(entries.replace("\\", "/")),
+                            "subfolder": os.path.dirname(entries.replace("\\", "/")),
+                            "type": "output",
+                        }
+                    ]
+                if not isinstance(entries, list):
+                    continue
+                print(
+                    f"worker-comfyui - Node {node_id} contains {len(entries)} 3D model file(s) under '{model_key}'"
+                )
+                for model_info in entries:
+                    if isinstance(model_info, str):
+                        model_info = {
+                            "filename": os.path.basename(model_info.replace("\\", "/")),
+                            "subfolder": os.path.dirname(model_info.replace("\\", "/")),
+                            "type": "output",
+                        }
+                    if not isinstance(model_info, dict):
+                        continue
+                    filename = model_info.get("filename")
+                    subfolder = model_info.get("subfolder", "")
+                    model_type = model_info.get("type", "output")
+
+                    if model_type == "temp":
+                        print(
+                            f"worker-comfyui - Skipping 3D model {filename} because type is 'temp'"
+                        )
+                        continue
+
+                    if not filename:
+                        warn_msg = f"Skipping 3D model in node {node_id} due to missing filename: {model_info}"
+                        print(f"worker-comfyui - {warn_msg}")
+                        errors.append(warn_msg)
+                        continue
+
+                    model_bytes = get_image_data(filename, subfolder, model_type)
+
+                    if model_bytes:
+                        try:
+                            base64_model = base64.b64encode(model_bytes).decode("utf-8")
+                            models_3d_data.append(
+                                {
+                                    "filename": filename,
+                                    "type": "base64",
+                                    "data": base64_model,
+                                }
+                            )
+                            print(f"worker-comfyui - Encoded 3D model {filename} as base64")
+                        except Exception as e:
+                            error_msg = f"Error encoding 3D model {filename} to base64: {e}"
+                            print(f"worker-comfyui - {error_msg}")
+                            errors.append(error_msg)
+                    else:
+                        error_msg = f"Failed to fetch 3D model data for {filename} from /view endpoint."
+                        errors.append(error_msg)
+
+            # Check for other output types (excluding handled media keys)
+            handled_keys = {"images", "gifs", "videos", "3d", "mesh"}
+            other_keys = [k for k in node_output.keys() if k not in handled_keys]
             if other_keys:
                 warn_msg = (
                     f"Node {node_id} produced unhandled output keys: {other_keys}."
@@ -1011,25 +1078,31 @@ def handler(job):
     if output_data:
         final_result["images"] = output_data
 
+    if models_3d_data:
+        final_result["models_3d"] = models_3d_data
+
     if errors:
         final_result["errors"] = errors
         print(f"worker-comfyui - Job completed with errors/warnings: {errors}")
 
-    if not output_data and errors:
+    if not output_data and not models_3d_data and errors:
         print(f"worker-comfyui - Job failed with no output files.")
         return {
             "error": "Job processing failed",
             "details": errors,
         }
-    elif not output_data and not errors:
+    elif not output_data and not models_3d_data and not errors:
         print(
-            f"worker-comfyui - Job completed successfully, but the workflow produced no output files (images/gifs/videos)."
+            f"worker-comfyui - Job completed successfully, but the workflow produced no output files (images/gifs/videos/3d)."
         )
         final_result["status"] = "success_no_outputs"
         final_result["images"] = []
 
-    total_outputs = len(output_data)
-    print(f"worker-comfyui - Job completed. Returning {total_outputs} output file(s) (images/gifs/videos).")
+    total_outputs = len(output_data) + len(models_3d_data)
+    print(
+        f"worker-comfyui - Job completed. Returning {len(output_data)} media file(s) "
+        f"and {len(models_3d_data)} 3D model file(s)."
+    )
     return final_result
 
 

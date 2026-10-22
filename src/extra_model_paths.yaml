@@ -19,3 +19,6 @@ runpod_worker_comfy:
   reactor: models/reactor/
   sams: models/sams/
   ultralytics: models/ultralytics/
+  # Native ComfyUI Trellis2 / Pixal3D / MoGe / BiRefNet (models on network volume)
+  background_removal: models/background_removal/
+  geometry_estimation: models/geometry_estimation/
