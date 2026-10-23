@@ -77,38 +77,37 @@ ADD src/extra_model_paths.yaml ./
 COPY scripts/comfy-node-install.sh /usr/local/bin/comfy-node-install
 RUN chmod +x /usr/local/bin/comfy-node-install
 
-# Install custom nodes in batches to avoid timeout issues
-# Batch 1: Core nodes (Impact Pack, D2, Kimara)
-RUN comfy-node-install \
-    https://github.com/ltdrdata/ComfyUI-Impact-Pack \
-    https://github.com/ltdrdata/ComfyUI-Impact-Subpack \
-    https://github.com/da2el-ai/D2-nodes-ComfyUI \
-    https://github.com/kimara-ai/ComfyUI-Kimara-AI-Advanced-Watermarks
-
-# Batch 2: Utility nodes (Save)
-RUN comfy-node-install \
-    https://github.com/WUYUDING2583/ComfyUI-Save-Image-Callback
-
-# Batch 3: InfiniteTalk workflow nodes
-RUN comfy-node-install \
-    https://github.com/kijai/ComfyUI-WanVideoWrapper \
-    https://github.com/rgthree/rgthree-comfy \
-    https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite
-
-# Batch 4: Additional utility and workflow nodes
-RUN comfy-node-install \
-    https://github.com/kijai/ComfyUI-KJNodes \
-    https://github.com/ClownsharkBatwing/RES4LYF \
-    https://github.com/alexopus/ComfyUI-Image-Saver
-
-# Trellis2 / Pixal3D / MoGe / Save3DAdvanced / MeshToFile3D are ComfyUI CORE nodes
-# (workflow cnr_id: comfy-core) when COMFYUI_VERSION=latest. Do NOT install third-party
-# ComfyUI-TRELLIS2 packs here — they conflict with native nodes. Put models on the
-# network volume instead, e.g.:
+# Custom nodes commented out to stay under Runpod's 30m image-build limit.
+# Current API workflows (flux/WAN/trellis) use ComfyUI CORE nodes only when
+# COMFYUI_VERSION=latest. Uncomment batches below if a workflow needs them.
+#
+# # Batch 1: Core nodes (Impact Pack, D2, Kimara)
+# RUN comfy-node-install \
+#     https://github.com/ltdrdata/ComfyUI-Impact-Pack \
+#     https://github.com/ltdrdata/ComfyUI-Impact-Subpack \
+#     https://github.com/da2el-ai/D2-nodes-ComfyUI \
+#     https://github.com/kimara-ai/ComfyUI-Kimara-AI-Advanced-Watermarks
+#
+# # Batch 2: Utility nodes (Save)
+# RUN comfy-node-install \
+#     https://github.com/WUYUDING2583/ComfyUI-Save-Image-Callback
+#
+# # Batch 3: InfiniteTalk / WAN wrapper nodes
+# RUN comfy-node-install \
+#     https://github.com/kijai/ComfyUI-WanVideoWrapper \
+#     https://github.com/rgthree/rgthree-comfy \
+#     https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite
+#
+# # Batch 4: Additional utility and workflow nodes
+# RUN comfy-node-install \
+#     https://github.com/kijai/ComfyUI-KJNodes \
+#     https://github.com/ClownsharkBatwing/RES4LYF \
+#     https://github.com/alexopus/ComfyUI-Image-Saver
+#
+# Trellis2 / Pixal3D / MoGe are ComfyUI CORE — do not install third-party
+# ComfyUI-TRELLIS2 packs (conflicts). Models on network volume, e.g.:
 #   models/diffusion_models/trellis_2_int8_convrot.safetensors
-#   models/diffusion_models/pixal3d_int8_convrot.safetensors
 #   models/vae/trellis_2_shape_vae_bf16.safetensors
-#   models/vae/trellis_2_texture_vae_bf16.safetensors
 #   models/clip_vision/dino_v3_L_naf_fp32.safetensors
 #   models/background_removal/birefnet.safetensors
 #   models/geometry_estimation/moge_2_vitl_normal_fp16.safetensors
