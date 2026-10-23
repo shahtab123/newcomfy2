@@ -116,20 +116,8 @@ RUN chmod +x /usr/local/bin/comfy-node-install
 # Go back to the root
 WORKDIR /
 
-# comfy-cli installs ComfyUI into its own workspace venv (/comfyui/.venv), but
-# start.sh launches ComfyUI with /opt/venv's python. Mirror ComfyUI's full
-# dependency set (core + custom nodes) into /opt/venv so the launch venv is
-# complete. Also pin torch to +cu128 (avoid CUDA 13 wheels on older drivers)
-# and cap transformers/huggingface-hub to avoid breaking major versions.
-RUN uv pip install torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0 \
-      --index-url https://download.pytorch.org/whl/cu128 \
-    && uv pip install -r /comfyui/requirements.txt \
-    && for r in /comfyui/custom_nodes/*/requirements.txt; do \
-         [ -f "$r" ] && uv pip install -r "$r" || true; \
-       done \
-    && uv pip install "transformers>=4.50.3,<5" "huggingface-hub<1.0"
-
-# Install Python runtime dependencies for the handler
+# Handler-only deps in /opt/venv. ComfyUI uses /comfyui/.venv (see start.sh).
+# Skipping a second torch/requirements mirror keeps the GitHub build under 30m.
 RUN uv pip install runpod requests websocket-client
 
 # Add application code and scripts
@@ -143,33 +131,26 @@ RUN chmod +x /usr/local/bin/comfy-manager-set-mode
 # Set the default command to run when starting the container
 CMD ["/start.sh"]
 
-# Stage 2: Download models
-FROM base AS downloader
+# Models are NOT baked into the image — use the Runpod network volume mounted at
+# /runpod-volume (see src/extra_model_paths.yaml). Place files under e.g.
+#   /runpod-volume/models/checkpoints/
+#   /runpod-volume/models/diffusion_models/
+#   /runpod-volume/models/vae/
+# Optional bake-in stages kept commented if you need a Hub smoke-test image later:
+#
+# # Stage 2: Download models
+# FROM base AS downloader
+# ARG HUGGINGFACE_ACCESS_TOKEN
+# ARG MODEL_TYPE=flux1-dev-fp8
+# WORKDIR /comfyui
+# RUN mkdir -p models/checkpoints models/vae models/unet models/clip
+# RUN if [ "$MODEL_TYPE" = "flux1-dev-fp8" ]; then \
+#       wget -q -O models/checkpoints/flux1-dev-fp8.safetensors \
+#         https://huggingface.co/Comfy-Org/flux1-dev/resolve/main/flux1-dev-fp8.safetensors; \
+#     fi
+#
+# FROM base AS final
+# COPY --from=downloader /comfyui/models /comfyui/models
 
-ARG HUGGINGFACE_ACCESS_TOKEN
-# Set default model type if none is provided
-ARG MODEL_TYPE=flux1-dev-fp8
-
-# Change working directory to ComfyUI
-WORKDIR /comfyui
-
-# Create necessary directories upfront
-RUN mkdir -p models/checkpoints models/vae models/unet models/clip
-
-# Download checkpoints/vae/unet/clip models to include in image based on model type
-
-RUN if [ "$MODEL_TYPE" = "sd3" ]; then \
-      wget -q --header="Authorization: Bearer ${HUGGINGFACE_ACCESS_TOKEN}" -O models/checkpoints/sd3_medium_incl_clips_t5xxlfp8.safetensors https://huggingface.co/stabilityai/stable-diffusion-3-medium/resolve/main/sd3_medium_incl_clips_t5xxlfp8.safetensors; \
-    fi
-
-
-
-RUN if [ "$MODEL_TYPE" = "flux1-dev-fp8" ]; then \
-      wget -q -O models/checkpoints/flux1-dev-fp8.safetensors https://huggingface.co/Comfy-Org/flux1-dev/resolve/main/flux1-dev-fp8.safetensors; \
-    fi
-
-# Stage 3: Final image
+# Final image alias (same as base; keeps docker-bake `target = "final"` working)
 FROM base AS final
-
-# Copy models from stage 2 to the final image
-COPY --from=downloader /comfyui/models /comfyui/models
